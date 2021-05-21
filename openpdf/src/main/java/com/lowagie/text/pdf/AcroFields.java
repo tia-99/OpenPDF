@@ -56,12 +56,9 @@ import com.lowagie.text.error_messages.MessageLocalization;
 import java.awt.Color;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.ByteOrder;
+import java.util.*;
+
 import org.w3c.dom.Node;
 
 /**
@@ -149,6 +146,7 @@ public class AcroFields {
     }
     fill();
   }
+
 
   void fill() {
     fields = new HashMap<>();
@@ -322,6 +320,70 @@ public class AcroFields {
     }
     String[] out = new String[names.size()];
     return names.keySet().toArray(out);
+  }
+
+  /**
+   * Checks if the gap specified by a byte range only contains the contents of a signature. The method returns true only if there are
+   * two pairs of numbers in the ByteRange array, and the gap specified by the array only contains the Contents hex string of the
+   * signature.
+   *
+   * @param name the name of the signature
+   * @return <CODE>true</CODE> if the gap only contains the contents of the signature, <CODE>false</CODE> otherwise
+   */
+  public boolean checkByteRangeGap(String name) throws IOException {
+    final PdfDictionary signature = getSignatureDictionary(name);
+    if (signature == null) {
+      return false;
+    }
+    final PdfArray byteRange = signature.getAsArray(PdfName.BYTERANGE);
+    if (byteRange == null) {
+      return false;
+    }
+    if (byteRange.size() != 4) {
+      return false;
+    }
+    final PdfString contents = signature.getAsString(PdfName.CONTENTS);
+    final RandomAccessFileOrArray file = reader.getSafeFile();
+    final byte[] arrayIn = file.arrayIn;
+    if (contents == null || file == null || arrayIn == null) {
+      return false;
+    }
+    int begin = byteRange.getAsNumber(0).intValue() + byteRange.getAsNumber(1).intValue();
+    int end = byteRange.getAsNumber(2).intValue();
+    if (begin >= end || end > arrayIn.length || begin < 0) {
+      return false;
+    }
+    if (arrayIn[begin] != '<' || arrayIn[end - 1] != '>') {
+      return false;
+    }
+    ++begin;
+    --end;
+    int gapLength = end - begin;
+    final byte[] contentBytes = contents.getBytes();
+    if ((gapLength + 1) >> 1 != contentBytes.length) {
+      return false;
+    }
+    if (gapLength % 2 != 0) {
+      if (arrayIn[end - 1] << 4 != contentBytes[contentBytes.length - 1]) {
+        return false;
+      }
+      --end;
+    }
+    int gapPtr = begin;
+    int contentPtr = 0;
+    while (gapPtr < end && contentPtr < contentBytes.length) {
+      int high = PRTokeniser.getHex(arrayIn[gapPtr]);
+      int low = PRTokeniser.getHex(arrayIn[gapPtr + 1]);
+      if (high == -1 || low == -1) {
+        return false;
+      }
+      if ((high << 4) + low != (contentBytes[contentPtr] + 256) % 256) {
+        return false;
+      }
+      gapPtr += 2;
+      ++contentPtr;
+    }
+    return true;
   }
 
   private String[] getListOption(String fieldName, int idx) {
