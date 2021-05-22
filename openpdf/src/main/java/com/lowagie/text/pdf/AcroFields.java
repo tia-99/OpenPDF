@@ -344,8 +344,11 @@ public class AcroFields {
     }
     final PdfString contents = signature.getAsString(PdfName.CONTENTS);
     final RandomAccessFileOrArray file = reader.getSafeFile();
+    if (file == null) {
+      return false;
+    }
     final byte[] arrayIn = file.arrayIn;
-    if (contents == null || file == null || arrayIn == null) {
+    if (contents == null || arrayIn == null) {
       return false;
     }
     int begin = byteRange.getAsNumber(0).intValue() + byteRange.getAsNumber(1).intValue();
